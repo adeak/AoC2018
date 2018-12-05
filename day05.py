@@ -1,26 +1,15 @@
-# # original, memory error
-# def day05a(inp):
-#     i = 0
-#     chem = inp
-#     have = []
-#     while i < len(chem) - 2:
-#         if abs(ord(chem[i]) - ord(chem[i+1])) == 32:
-#             # annihilate chem[i] and chem[i+1]
-#             chem = chem[:i] + chem[i+2:]
-#             # step one back
-#             i -= 1
-#         else:
-#             i += 1
-#     return len(chem)
-
 class Linked():
     def __init__(self, c):
-        self.val = c
+        self.val = ord(c)
         self.prev = None
         self.next = None
+    def __xor__(self, other):
+        return abs(self.val - other.val) == 32
 
 def day05a(inp):
     i = 0
+
+    # create linked list
     root = Linked(inp[0])
     prev = root
     for c in inp[1:]:
@@ -29,18 +18,20 @@ def day05a(inp):
         t.prev = prev
         prev = t
 
+    # compute reactions
     link = root
     while True:
         nxt = link.next
         if not nxt:
             break
-        if abs(ord(link.val) - ord(nxt.val)) == 32:
+        if link ^ nxt:
             # annihilate link and next
             prevgood = link.prev
             nextgood = nxt.next
             if not prevgood:
                 link = nextgood
                 link.prev = None
+                root = link # not actually used later
             elif not nextgood:
                 link = prevgood
                 link.next = None
@@ -51,6 +42,8 @@ def day05a(inp):
                 link = prevgood
         else:
             link = nxt
+
+    # count remaining links
     nlinks = 0
     while True:
         nlinks += 1
@@ -58,6 +51,7 @@ def day05a(inp):
         if not link:
             break
     return nlinks
+
 
 def day05b(inp):
     types = set(inp)
