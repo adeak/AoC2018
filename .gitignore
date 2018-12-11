@@ -1,6 +1,6 @@
 __pycache__
 .*.swp
-*.*inp*
+*.inp
 *.start
 *.end
 *.png
