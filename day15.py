@@ -9,14 +9,32 @@ def print_board(view, units):
     for isgoblin,unit in units:
         char = 'G' if isgoblin else 'E'
         plotview[unit[0], unit[1]] = char
+    print('\33c')
     print('\n'.join([''.join(row) + f'  {[unit[2] for _,unit in units if unit[0] == i]}' for i,row in enumerate(plotview)]))
-    #print(units)
+
+def manhattan(pos, other):
+    """Compute the Manhattan distance of two array-likes of shape (2,) vs (?,2)"""
+    # too slow for many short pairs of coordinates, only use for vectorized group distances
+    return np.linalg.norm(np.asarray(pos) - np.asarray(other), ord=1, axis=-1) # scalar or shape (?,)
+
+def next_power(power_interval):
+    """Get net elf power level using bisection method"""
+    start,end = power_interval
+    if not end[1]:
+        # elves are dead on right side, double the power
+        power = 2 * end[0]
+    elif start[1]:
+        # elves are alive on the left; not actually going to happen
+        power = start[0]//2
+    else:
+        # otherwise we've got the crossover nailed down
+        power = (start[0] + end[0])//2
+    return power
 
 def find_nearest_paths(pos, others, sames, view):
     """Find paths to nearest enemy-neighbour, return distance and enemy-neighbour and minimum path"""
     # define a mask for dilation: only dilate where mask is True
     mask = view == '.' # not walls
-    #print(f'find_nearest_paths: sames = {sames}')
     mask[tuple(sames.T)] = False # consider friendly units as walls
     mask[tuple(others.T)] = False # consider enemy units as walls (we're looking for "in-range" sites)
 
@@ -48,7 +66,7 @@ def find_nearest_paths(pos, others, sames, view):
 
         for new_edge_coord in edges:
             # find the "best" (in reading order) parent edge point for logistics
-            parent = min({edge for edge in old_edges if sum(abs(xi-xj) for xi,xj in zip(edge, new_edge_coord))==1})
+            parent = min({edge for edge in old_edges if sum(abs(xi-xj) for xi,xj in zip(edge, new_edge_coord)) == 1}) # manhattan would be too slow here
             parents[new_edge_coord] = parent
 
         found_others = edges & other_set
@@ -67,26 +85,17 @@ def find_nearest_paths(pos, others, sames, view):
                 current = parent
 
 
-def day15(inp):
+def day15a(inp):
     view = np.array([list(row) for row in inp.split('\n')])
     free = np.isin(view, list('.GE')) # not wall
     goblins = np.array(sorted(zip(*(view == 'G').nonzero(), cycle([200]), cycle([3]), count()))) # (x,y,health,attack,index) tuples, good for sorting
     elves = np.array(sorted(zip(*(view == 'E').nonzero(), cycle([200]), cycle([3]), count()))) # (x,y,health,attack,index) tuples, good for sorting
     view[free] = '.'
-    for tick in count(1):
-        #print(f'starting round {tick}')
-        #print('goblins:')
-        #print(goblins)
-        #print('elves:')
-        #print(elves)
-        #units = list(zip([True]*len(goblins) + [False]*len(elves), sorted(goblins.tolist() + elves.tolist())))
+    rounds = 0
+    while True:
         units = list(sorted(zip([True]*len(goblins) + [False]*len(elves), goblins.tolist() + elves.tolist()), key=itemgetter(1)))
         #print_board(view, units)
         #input()
-
-        #print_board(view, units)
-        #print(goblins)
-        #print(elves)
 
         for i,(isgoblin,unit) in enumerate(units):
             *pos,health,attack,index = unit
@@ -94,39 +103,33 @@ def day15(inp):
             if health <= 0:
                 continue
 
-
             # check if game is over mid-round
             livetypes = {isgoblin for isgoblin,unit in units if unit[2]>0}
             if len(livetypes) == 1:
                 units = [(j,unit) for j,unit in units if unit[2]>0]
                 total = sum(unit[2] for _,unit in units)
-                #print(units)
-                print(f'game finished _within_ round {tick}, health={total}')
-                print_board(view, units)
-                return((tick-1)*total)
+                return rounds * total
+
             # move if out of range, otherwise (or after) attack
             goblins = np.array([unit for isgoblin,unit in units if isgoblin])
             elves = np.array([unit for isgoblin,unit in units if not isgoblin])
             others,sames = (elves,goblins) if isgoblin else (goblins,elves)
             living = others[:,2] >= 1
-            dists = abs(pos - others[living,:2]).sum(-1) # "crow flies in Manhattan" distance of this unit from every enemy
+            dists = manhattan(pos, others[living,:2]) # "crow flies in Manhattan" distance of this unit from every enemy
             inrange = dists.min() == 1
             if not inrange:
                 # move if nobody is in range
-                #print(isgoblin,unit)
                 nearests = find_nearest_paths(pos, others[living,:2], sames[:,:2], view)
                 if not nearests:
-                    #print(f'unit {i}: no connected enemy found')
                     # no enemy found, go on
                     continue
                 dist,nearest,minpath = nearests
-                #print(dist,nearest,minpath)
                 unit[:2] = pos = minpath[1]
                 for same in sames:
                     if same[4] == unit[4]:
                         # update position data
                         same[:2] = unit[:2]
-                dists = abs(pos - others[living,:2]).sum(-1) # recompute
+                dists = manhattan(pos, others[living,:2]) # recompute
             if dists.min() == 1:
                 # now we're in range
                 # attack nearest with lowest HP, in reading order among those
@@ -134,25 +137,19 @@ def day15(inp):
                 HP = others[living][near_inds, 2]
                 minHPs = HP == HP.min()
                 choice = min(minHPs.nonzero()[0], key=lambda i:tuple(others[living][near_inds][i,:2]))
-                #print(f'neighbour choices: {[(i, HP[i], tuple(others[living][near_inds][i,:2])) for i in range(HP.size)]}')
-                #print(f'chosen: {choice}')
                 otherpos = others[living][near_inds][choice, :2]
                 others[living][near_inds][choice, 2] -= attack
-                #print(f'{"G" if isgoblin else "E"} unit {pos} attacked {otherpos}')
-                #print(f'unit {i} {pos} attacking...')
-                #print(f'units before attack:')
-                #print(units)
                 # if health goes below 1 we'll handle it elsewhere
                 # find this in `unit` and change the health there too; that is the source of truth
                 for jsgoblin,otherunit in units:
                     if isgoblin ^ jsgoblin:
                         # it's an enemy
-                        #print(otherpos,otherunit[:2])
                         if np.array_equal(otherpos, otherunit[:2]):
                             otherunit[2] -= attack
-                #print(f'units after attack:')
-                #print(units)
         
+        # step counter for complete rounds
+        rounds += 1
+            
         # update units
         new_goblins = []
         new_elves = []
@@ -168,14 +165,10 @@ def day15(inp):
         elves = np.array(new_elves)
 
         # check for endgame (no more units left on one side)
-        #print_board(view, units)
         total = goblins[:,2].sum() if goblins.size else elves[:,2].sum()
-        #print(tick, total)
         if not goblins.size or not elves.size:
-            print(f'game finished _after_ round {tick}, health={total}')
             units = [(j,unit) for j,unit in units if unit[2]>0]
-            print_board(view, units)
-            return tick*total
+            return rounds * total
 
 
 def day15b(inp):
@@ -185,30 +178,17 @@ def day15b(inp):
     num_elves = (view == 'E').sum()
     free = np.isin(view, list('.GE')) # not wall
     view[free] = '.'
-    #for elfpower in count(4):
-    for elfpower in count(34):
+    power_interval = []
+    elfpower = 4
+    while True:
+        # loop over elf powers
         goblins = np.array(sorted(zip(*goblin_inds0, cycle([200]), cycle([3]), count()))) # (x,y,health,attack,index) tuples, good for sorting
         elves = np.array(sorted(zip(*elf_inds0, cycle([200]), cycle([elfpower]), count()))) # (x,y,health,attack,index) tuples, good for sorting
         nextattack = False
-        for tick in count(1):
-            if nextattack:
-                break
-            #print(f'starting round {tick}')
-            #print('goblins:')
-            #print(goblins)
-            #print('elves:')
-            #print(elves)
-            #units = list(zip([True]*len(goblins) + [False]*len(elves), sorted(goblins.tolist() + elves.tolist())))
+        rounds = 0
+        while True:
+            # loop over rounds, while rather than for loop to easily account for "complete rounds"
             units = list(sorted(zip([True]*len(goblins) + [False]*len(elves), goblins.tolist() + elves.tolist()), key=itemgetter(1)))
-            #print("\33c")
-            #print()
-            #print(f'round {tick-1} over...')
-            #print_board(view, units)
-            #input()
-    
-            #print_board(view, units)
-            #print(goblins)
-            #print(elves)
     
             for i,(isgoblin,unit) in enumerate(units):
                 *pos,health,attack,index = unit
@@ -220,42 +200,30 @@ def day15b(inp):
                 # check if game is over mid-round
                 livetypes = {isgoblin for isgoblin,unit in units if unit[2]>0}
                 if len(livetypes) == 1:
-                    elves = [unit for isgoblin,unit in units if unit[2] > 0 and not isgoblin]
-                    if len(elves) < num_elves:
-                        # at least an elf died
-                        print(f"elves didn't win flawlessly with attack {elfpower} _within_ round {tick} (lost {num_elves - len(elves)} elves)")
-                        if elves: print((tick-1)*sum(elf[2] for elf in elves))
-                        nextattack = True
-                        break
+                    # this round is over, decide on next
+                    nextattack = True
+                    break
 
-                    # else they've won flawlessly
-                    total = sum(elf[2] for elf in elves)
-                    print(f'Elves finally win flawlessly with attack {elfpower} _within_ round {tick}, health={total}')
-                    print_board(view, units)
-                    return((tick-1)*total)
                 # move if out of range, otherwise (or after) attack
                 goblins = np.array([unit for isgoblin,unit in units if isgoblin])
                 elves = np.array([unit for isgoblin,unit in units if not isgoblin])
                 others,sames = (elves,goblins) if isgoblin else (goblins,elves)
                 living = others[:,2] >= 1
-                dists = abs(pos - others[living,:2]).sum(-1) # "crow flies in Manhattan" distance of this unit from every enemy
+                dists = manhattan(pos, others[living,:2]) # "crow flies in Manhattan" distance of this unit from every enemy
                 inrange = dists.min() == 1
                 if not inrange:
                     # move if nobody is in range
-                    #print(isgoblin,unit)
                     nearests = find_nearest_paths(pos, others[living,:2], sames[:,:2], view)
                     if not nearests:
-                        #print(f'unit {i}: no connected enemy found')
                         # no enemy found, go on
                         continue
                     dist,nearest,minpath = nearests
-                    #print(dist,nearest,minpath)
                     unit[:2] = pos = minpath[1]
                     for same in sames:
                         if same[4] == unit[4]:
                             # update position data
                             same[:2] = unit[:2]
-                    dists = abs(pos - others[living,:2]).sum(-1) # recompute
+                    dists = manhattan(pos, others[living,:2]) # recompute
                 if dists.min() == 1:
                     # now we're in range
                     # attack nearest with lowest HP, in reading order among those
@@ -263,28 +231,16 @@ def day15b(inp):
                     HP = others[living][near_inds, 2]
                     minHPs = HP == HP.min()
                     choice = min(minHPs.nonzero()[0], key=lambda i:tuple(others[living][near_inds][i,:2]))
-                    #print(f'neighbour choices: {[(i, HP[i], tuple(others[living][near_inds][i,:2])) for i in range(HP.size)]}')
-                    #print(f'chosen: {choice}')
                     otherpos = others[living][near_inds][choice, :2]
                     others[living][near_inds][choice, 2] -= attack
-                    #print(f'{"G" if isgoblin else "E"} unit {pos} attacked {otherpos}')
-                    #print(f'unit {i} {pos} attacking...')
-                    #print(f'units before attack:')
-                    #print(units)
                     # if health goes below 1 we'll handle it elsewhere
                     # find this in `unit` and change the health there too; that is the source of truth
                     for jsgoblin,otherunit in units:
                         if isgoblin ^ jsgoblin:
                             # it's an enemy
-                            #print(otherpos,otherunit[:2])
                             if np.array_equal(otherpos, otherunit[:2]):
                                 otherunit[2] -= attack
-                    #print(f'units after attack:')
-                    #print(units)
 
-            if nextattack:
-                break
-            
             # update units
             new_goblins = []
             new_elves = []
@@ -298,40 +254,52 @@ def day15b(inp):
                     new_elves.append(unit)
             goblins = np.array(new_goblins)
             elves = np.array(new_elves)
-    
-            # check for endgame (no more units left on one side)
-            #print_board(view, units)
-            if not goblins.size or not elves.size:
-                if elves.shape[0] != num_elves:
-                    # elves lost (again)
-                    print(f"elves didn't win flawlessly with attack {elfpower} _after_ round {tick} (lost {num_elves - elves.shape[0]} elves)")
-                    if elves.size: print(tick*elves[:,2].sum())
-                    nextattack = True # redundant, really
+
+            if elves.shape[0] < num_elves or not goblins.size:
+                # early exit from fight due to dead elves or the elves won
+                nextattack = True
+
+            if nextattack:
+                # decide next elf power using bisection method
+                # keep track of power, winning state of elves and corresponding "outcome"
+
+                # we either killed all goblins or at least an elf died
+                win = goblins.size == 0
+                total = sum(elf[2] for elf in elves)
+                point = (elfpower, win, rounds*total) # (power, elves_survived, outcome) triple
+                if len(power_interval) < 2:
+                    # we're still starting up with bisection
+                    power_interval = sorted(power_interval + [point]) # sort by elfpower
+                    elfpower = elfpower*2 if not win else elfpower//2
                     break
 
-                total = elves[:,2].sum()
-                print(f'Elves won flawlessly with attack {elfpower} _after_ round {tick}, health={total}')
-                units = [(j,unit) for j,unit in units if unit[2]>0]
-                print_board(view, units)
-                return tick*total
+                # if we're here: we've got a full power interval [start, end]
+                if not win:
+                    # the elves lost, go up in power
+                    power_interval = sorted([power_interval[1], point])
+                else:
+                    # the elves won, go down in power
+                    power_interval = sorted([power_interval[0], point])
+
+                if power_interval[1][0] - power_interval[0][0] == 1:
+                    # then we must have dead elves on the left and winning elves on the right
+                    return power_interval[1][2]
+
+                # otherwise choose next power
+                elfpower = next_power(power_interval)
+                break
+
+            # step counter for complete rounds
+            rounds += 1            
+
 
 if __name__ == "__main__":
     testinp = open('day15.testinp').read().strip()
     testinp2 = open('day15.testinp2').read().strip()
     testinp3 = open('day15.testinp3').read().strip()
-    testinp4 = open('day15.testinp4').read().strip()
     inp = open('day15.inp').read().strip()
-    #print(f'part1 test: {testinp} -> {day15(testinp)}')
-    #print(f'part1 test: {testinp2} -> {day15(testinp2)}')
-    #print(f'part1 test: {testinp3} -> {day15(testinp3)}')
-    print(f'part1 test: {testinp4} -> {day15(testinp4)}')
-    print(f'part1: {day15(inp)}')
-    # 71*2777 == 197167 too high
-    #print(f'part2 test: {testinp} -> {day15b(testinp)}')
-    #print(f'part2 test: {testinp2} -> {day15b(testinp2)}')
-    #print(f'part2 test: {testinp3} -> {day15b(testinp3)}')
+    print(f'part1 test: {day15a(testinp)}')
+    print(f'part1 test: {day15a(testinp2)}')
+    print(f'part1 test: {day15a(testinp3)}')
+    print(f'part1: {day15a(inp)}')
     print(f'part2: {day15b(inp)}')
-    # 23*1526 == 35098 too low
-    # 24*1526 == 36624 too low
-    # 37827 too high
-    # 36150 not right
