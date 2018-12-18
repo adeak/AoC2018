@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 
 def stringify(view):
     """Return a stringified version of the map"""
@@ -12,13 +13,11 @@ def print_map(view):
 
 def get_neighbour_counts(padded_view, other_val):
     """Return for each acre how many of its valid neighbours are `other_val`"""
-    counts = np.zeros(tuple(n-2 for n in padded_view.shape), dtype=int)
-    for from1,to1 in [(None, -2), (1, -1), (2, None)]:
-        for from2,to2 in [(None, -2), (1, -1), (2, None)]:
-            if (from1,to1) == (from2,to2) == (1,-1):
-                # ignore ourselves
-                continue
-            counts += padded_view[from1:to1, from2:to2] == other_val
+    strides = padded_view.strides
+    windowed = as_strided(padded_view, shape=tuple(n-2 for n in padded_view.shape) + (3,3), strides=strides*2)
+    counts = (windowed == other_val).sum((-2,-1))
+    # correct central site where necessary
+    counts[padded_view[1:-1, 1:-1] == other_val] -= 1
     return counts
 
 def day18(inp, it=10):
