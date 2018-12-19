@@ -41,11 +41,14 @@ def cmp_maker():
             instrs[name + tail_A + tail_B] = fun
     return instrs
 
+def instruction_maker():
+    return {**binary_maker(), **asgn_maker(), **cmp_maker()}
+
 def day16(inp, part2=False):
     itinp = iter(inp.split('\n'))
 
     # create instruction table
-    instrs = {**binary_maker(), **asgn_maker(), **cmp_maker()}
+    instrs = instruction_maker()
 
     examples = []
     for line in itinp:
