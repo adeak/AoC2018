@@ -14,10 +14,10 @@ def print_map(view):
 def get_neighbour_counts(padded_view, other_val):
     """Return for each acre how many of its valid neighbours are `other_val`"""
     strides = padded_view.strides
-    windowed = as_strided(padded_view, shape=tuple(n-2 for n in padded_view.shape) + (3,3), strides=strides*2)
-    counts = (windowed == other_val).sum((-2,-1))
-    # correct central site where necessary
-    counts[padded_view[1:-1, 1:-1] == other_val] -= 1
+    windowed = as_strided(padded_view, shape=tuple(n-2 for n in padded_view.shape) + (3, 3), strides=strides*2).copy()
+    # mask central site, this is why we need a copy (although the copy might also be faster)
+    windowed[..., 1, 1] = -1
+    counts = (windowed == other_val).sum((-2, -1))
     return counts
 
 def day18(inp, it=10):
